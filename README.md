@@ -1,6 +1,6 @@
 # Profile VALL-E
 
-![Profile VALL-E](images/profilevalle.png)
+![Profile VALL-E](images/profileVALLE.png)
 
 ## Overview
 
