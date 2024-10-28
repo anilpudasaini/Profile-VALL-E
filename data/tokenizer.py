@@ -71,8 +71,13 @@ def tokenize_audio(tokenizer: AudioTokenizer, audio):
         encoded_frames = tokenizer.encode(wav)
     return encoded_frames
 
+def decode(tokenizer: AudioTokenizer, encoded_frames):
+    # Decode the codes to reconstruct the waveform
+    with torch.no_grad():
+        decoded_wav = tokenizer.decode(encoded_frames)
+    return decoded_wav
 
-
+# for debug purposes
 if __name__ == "__main__":
     model = EncodecModel.encodec_model_24khz()
     model.set_target_bandwidth(6.0)
