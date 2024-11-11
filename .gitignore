@@ -11,3 +11,6 @@ __pycache__/
 
 #ignore notebooks
 notebooks/
+
+#ignore tokenized
+data/tokenized/
