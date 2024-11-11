@@ -28,22 +28,22 @@ def prepare_custom_dataset(
     for index, row in metadata_df.iterrows():
         audio_path = Path(row["path"])  # Using the absolute path directly
         recording_id = audio_path.stem  # Base ID from filename
-        supervision_id = f"{recording_id}_{row['style_id']}_{index}"  # Unique ID using index  # Unique ID for each style_id
+        supervision_id = f"{recording_id}_{row['style_id']}_{index}"  # Unique ID for each supervision
 
         # Check if audio file exists
         if not audio_path.is_file():
             logging.warning(f"Missing audio file: {audio_path}")
             continue
 
-        # Only add the recording once, even if it has multiple supervisions with different style_id
+        # Only add the recording once, even if it has multiple supervisions
         if recording_id not in recording_ids:
             recording = Recording.from_file(audio_path, recording_id=recording_id)
             if recording.sampling_rate != target_sample_rate:
                 recording = recording.resample(target_sample_rate)
             recordings.append(recording)
-            recording_ids.add(recording_id)
+            recording_ids.add(recording_id)  # Mark this recording as added
 
-        # Create SupervisionSegment with custom metadata and trimmed duration
+        # Create a unique SupervisionSegment for each row, including unique `profile_prompt`
         supervision = SupervisionSegment(
             id=supervision_id,
             recording_id=recording_id,
@@ -58,12 +58,13 @@ def prepare_custom_dataset(
                 "gender": row["gender"],
                 "accent": row["simplified_accents"],
                 "orig_text": row["sentence"],
-                "style_id": row["style_id"]
+                "style_id": row["style_id"],
+                "profile_prompt": row["profile_prompt"]
             }
         )
         supervisions.append(supervision)
 
-    # Create RecordingSet and SupervisionSet
+    # Create RecordingSet and SupervisionSet without duplicating recordings
     recording_set = RecordingSet.from_recordings(recordings)
     supervision_set = SupervisionSet.from_segments(supervisions)
 
@@ -73,8 +74,8 @@ def prepare_custom_dataset(
 
     # Save manifests to JSONL files
     output_dir.mkdir(parents=True, exist_ok=True)
-    recording_set.to_file(output_dir / "custom_recordings.jsonl.gz")
-    supervision_set.to_file(output_dir / "custom_supervisions.jsonl.gz")
+    recording_set.to_file(output_dir / "cvd_recordings.jsonl.gz")
+    supervision_set.to_file(output_dir / "cvd_supervisions.jsonl.gz")
 
     return {"recordings": recording_set, "supervisions": supervision_set}
 
