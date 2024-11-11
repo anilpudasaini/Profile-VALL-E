@@ -1,3 +1,7 @@
+#ignore manifest folder
+manifests/
+
+
 # Ignore Jupyter Notebook checkpoints
 .ipynb_checkpoints/
 
