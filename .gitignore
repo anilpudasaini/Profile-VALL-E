@@ -21,3 +21,6 @@ exp/
 
 #ignore outputs generated
 infer/
+
+#ignore docker
+docker/
