@@ -30,6 +30,8 @@ import torch.multiprocessing
 from icefall.utils import get_executor
 from lhotse import CutSet, NumpyHdf5Writer
 from lhotse.recipes.utils import read_manifests_if_cached
+from lhotse import Recording, RecordingSet, SupervisionSegment, SupervisionSet
+
 from tqdm.auto import tqdm
 
 from valle.data import (
@@ -164,12 +166,57 @@ def main():
                 f"Processing partition: {partition} CUDA: {torch.cuda.is_available()}"
             )
             try:
-                cut_set = CutSet.from_manifests(
+                # Create CutSet from recordings and supervisions
+                original_cut_set = CutSet.from_manifests(
                     recordings=m["recordings"],
                     supervisions=m["supervisions"],
                 )
-            except Exception:
+            
+                # Aggregate supervisions by recording_id
+                final_supervisions = []
+                for cut in original_cut_set:
+                    grouped_prompts = {}
+                    for supervision in cut.supervisions:
+                        recording_id = supervision.recording_id
+                        if recording_id not in grouped_prompts:
+                            grouped_prompts[recording_id] = {
+                                "base_supervision": supervision,
+                                "profile_prompts": []
+                            }
+                        grouped_prompts[recording_id]["profile_prompts"].append(
+                            supervision.custom["profile_prompt"]
+                        )
+                
+                    # Create aggregated supervisions
+                    for recording_id, group in grouped_prompts.items():
+                        base_supervision = group["base_supervision"]
+                        aggregated_supervision = SupervisionSegment(
+                            id=base_supervision.id,
+                            recording_id=base_supervision.recording_id,
+                            start=base_supervision.start,
+                            duration=base_supervision.duration,
+                            channel=base_supervision.channel,
+                            text=base_supervision.text,
+                            language=base_supervision.language,
+                            speaker=base_supervision.speaker,
+                            custom={
+                                **base_supervision.custom,
+                                "profile_prompts": group["profile_prompts"],
+                            },
+                        )
+                        final_supervisions.append(aggregated_supervision)
+                
+                # Create a new CutSet with updated supervisions
+                supervision_set = SupervisionSet.from_segments(final_supervisions)
+                cut_set = CutSet.from_manifests(
+                    recordings=m["recordings"],
+                    supervisions=supervision_set,
+                ).trim_to_supervisions()
+            
+            except Exception as e:
+                logging.error(f"Error while creating CutSet: {e}")
                 cut_set = m["cuts"]
+
 
             # AudioTokenizer
             if args.audio_extractor:

@@ -426,15 +426,15 @@ class TtsDataModule:
     def train_cuts(self) -> CutSet:
         logging.info("About to get train cuts")
         return load_manifest_lazy(
-            self.args.manifest_dir / "cuts_train.jsonl.gz"
+            self.args.manifest_dir / "cvd_cuts_train.jsonl.gz" #added for custom dataset
         )
 
     @lru_cache()
     def dev_cuts(self) -> CutSet:
         logging.info("About to get dev cuts")
-        return load_manifest_lazy(self.args.manifest_dir / "cuts_dev.jsonl.gz")
+        return load_manifest_lazy(self.args.manifest_dir / "cvd_cuts_dev.jsonl.gz") #added for custom dataset
 
     @lru_cache()
     def test_cuts(self) -> CutSet:
         logging.info("About to get test cuts")
-        return load_manifest_lazy(self.args.manifest_dir / "cuts_test.jsonl.gz")
+        return load_manifest_lazy(self.args.manifest_dir / "cvd_cuts_test.jsonl.gz") #added for custom dataset

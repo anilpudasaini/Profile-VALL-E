@@ -35,6 +35,13 @@ def prepare_custom_dataset(
             logging.warning(f"Missing audio file: {audio_path}")
             continue
 
+        # Ensure `profile_prompt` exists; set a default if missing
+        if "profile_prompt" not in row or pd.isna(row["profile_prompt"]):
+            logging.warning(f"Missing 'profile_prompt' for audio file: {audio_path}")
+            profile_prompt = "A random speaker of random profile"
+        else:
+            profile_prompt = row["profile_prompt"]
+
         # Only add the recording once, even if it has multiple supervisions
         if recording_id not in recording_ids:
             recording = Recording.from_file(audio_path, recording_id=recording_id)

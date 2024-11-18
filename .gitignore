@@ -15,3 +15,9 @@ notebooks/
 #ignore tokenized
 data/tokenized/
 data/tokenized/
+
+#ignore models and checkpoints
+exp/
+
+#ignore outputs generated
+infer/

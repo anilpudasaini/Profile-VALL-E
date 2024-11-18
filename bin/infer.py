@@ -16,6 +16,16 @@
 Phonemize Text and EnCodec Audio.
 
 Usage example:
+
+
+    python3 bin/infer.py \
+        --decoder-dim 128 --nhead 4 --num-decoder-layers 4 --model-name valle \
+        --style-id int [0-26]
+        --output-dir infer/demo_valle_epoch20 \
+        --checkpoint exp/valle_nano_v2/epoch-20.pt
+
+    or if you want to explicitly use custom recording and transcript
+    
     python3 bin/infer.py \
         --decoder-dim 128 --nhead 4 --num-decoder-layers 4 --model-name valle \
         --text-prompts "Go to her." \
@@ -28,6 +38,9 @@ import argparse
 import logging
 import os
 from pathlib import Path
+
+import pandas as pd
+import random
 
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
@@ -43,6 +56,12 @@ from valle.data import (
 )
 from valle.data.collation import get_text_token_collater
 from valle.models import get_model
+
+# profile metadata csv
+CSV_FILE_PATH = "/home/anil/cv-corpus-17.0-2024-03-15/en/dataset/added_style_wav.csv"
+
+# Loading once globally
+df = pd.read_csv(CSV_FILE_PATH)
 
 
 def get_args():
@@ -120,7 +139,38 @@ def get_args():
         help="Do continual task.",
     )
 
+    #for profile based on age, gender, accent
+    parser.add_argument(
+        "--style-id",
+        type=int,
+        default=7,
+        help="Integer value representing the speaker profile, with a range of 27 different styles."
+    )
+
     return parser.parse_args()
+
+
+def get_random_prompts_for_style_id(style_id):
+    # df = pd.read_csv(CSV_FILE_PATH)
+    
+    # Filter rows by style_id
+    filtered_df = df[df['style_id'] == style_id]
+    
+    if filtered_df.empty:
+        raise ValueError(f"No entries found for style_id {style_id}.")
+    
+    # Select a random row and get the index
+    selected_row = filtered_df.sample(n=1).iloc[0]
+    row_index = selected_row.name  # Retrieve the index of the selected row
+    audio_prompt = selected_row['path']
+    text_prompt = selected_row['sentence']
+
+    # Print or log the selected row details
+    print(f"Selected row index: {row_index}")
+    print(f"Audio prompt path: {audio_prompt}")
+    print(f"Text prompt: {text_prompt}")
+
+    return text_prompt, audio_prompt
 
 
 def load_model(checkpoint, device):
@@ -147,6 +197,11 @@ def load_model(checkpoint, device):
 @torch.no_grad()
 def main():
     args = get_args()
+    
+    # If style_id is provided, fetch random text_prompts and audio_prompts from csv
+    if args.style_id is not None:
+        args.text_prompts, args.audio_prompts = get_random_prompts_for_style_id(args.style_id)
+
     text_tokenizer = TextTokenizer(backend=args.text_extractor)
 
     device = torch.device("cpu")

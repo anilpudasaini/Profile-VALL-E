@@ -1104,6 +1104,8 @@ def scan_pessimistic_batches_for_oom(
     logging.info(
         "Sanity check -- see if any of the batches in epoch 1 would cause OOM."
     )
+
+
     batches, crit_values = find_pessimistic_batches(train_dl.sampler)
 
     dtype = torch.float32

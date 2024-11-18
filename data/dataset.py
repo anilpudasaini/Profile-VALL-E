@@ -103,9 +103,18 @@ class SpeechSynthesisDataset(torch.utils.data.Dataset):
         }
 
 
+# def validate_for_tts(cuts: CutSet) -> None:
+#     validate(cuts)
+#     for cut in cuts:
+#         assert (
+#             len(cut.supervisions) == 1
+#         ), "Only the Cuts with single supervision are supported."
 def validate_for_tts(cuts: CutSet) -> None:
     validate(cuts)
+    invalid_cuts = []
     for cut in cuts:
-        assert (
-            len(cut.supervisions) == 1
-        ), "Only the Cuts with single supervision are supported."
+        if len(cut.supervisions) != 1:
+            invalid_cuts.append((cut.id, len(cut.supervisions)))
+    if invalid_cuts:
+        print(f"Invalid cuts detected: {invalid_cuts}")
+        raise AssertionError("Only the Cuts with single supervision are supported.")
