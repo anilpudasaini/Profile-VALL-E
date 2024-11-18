@@ -24,3 +24,4 @@ infer/
 
 #ignore docker
 docker/
+docker/*.h5
