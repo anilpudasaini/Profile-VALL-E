@@ -217,14 +217,14 @@ class TtsDataModule:
         group.add_argument(
             "--dataset",
             type=str,
-            default="libritts",
+            default="cvd",
             help="--input-strategy PromptedPrecomputedFeatures needs dataset name to prepare prompts.",
         )
 
         parser.add_argument(
             "--text-tokens",
             type=str,
-            default="data/tokenized/unique_text_tokens.k2symbols",
+            default="data/tokenized/cvd/unique_text_tokens.k2symbols",
             help="Path to the unique text tokens file",
         )
 

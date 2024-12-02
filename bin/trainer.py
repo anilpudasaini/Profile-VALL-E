@@ -520,6 +520,13 @@ def compute_loss(
     audio_features = batch["audio_features"].to(device)
     audio_features_lens = batch["audio_features_lens"].to(device)
     assert audio_features.ndim == 3
+    
+    # Extract style IDs
+    #speaker profile
+    style_ids = batch["style_ids"].to(device)
+
+    #print(f"Style IDs: {style_ids}")  #Debugging
+
 
     with torch.set_grad_enabled(is_training):
         predicts, loss, metrics = model(
@@ -527,6 +534,7 @@ def compute_loss(
             x_lens=text_tokens_lens,
             y=audio_features,
             y_lens=audio_features_lens,
+            style_id=style_ids, #speaker profile
             train_stage=params.train_stage,
         )
 

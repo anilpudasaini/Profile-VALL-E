@@ -23,6 +23,7 @@ class TokenEmbedding(nn.Module):
         self,
         dim_model: int,
         vocab_size: int,
+        num_styles: int = None,  #speaker profile
         dropout: float = 0.0,
     ):
         super().__init__()
@@ -33,6 +34,12 @@ class TokenEmbedding(nn.Module):
         self.dropout = torch.nn.Dropout(p=dropout)
         self.word_embeddings = nn.Embedding(self.vocab_size, self.dim_model)
 
+        #speaker profile
+        self.style_embeddings = (
+            nn.Embedding(num_styles, self.dim_model) if num_styles else None
+        )
+
+
     @property
     def weight(self) -> torch.Tensor:
         return self.word_embeddings.weight
@@ -40,8 +47,19 @@ class TokenEmbedding(nn.Module):
     def embedding(self, index: int) -> torch.Tensor:
         return self.word_embeddings.weight[index : index + 1]
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, style_id: torch.Tensor = None):
+        """
+        Args:
+          x: Input tensor for text tokens 
+          style_id: Tensor of style IDs for conditioning.
+        """
         X = self.word_embeddings(x)
+
+        # Add style embedding if provided
+        if self.style_embeddings and style_id is not None:
+            style_emb = self.style_embeddings(style_id)  # Shape: [Batch, dim_model]
+            X = X + style_emb.unsqueeze(1)  # Broadcast style_emb across all time steps
+        
         X = self.dropout(X)
 
         return X

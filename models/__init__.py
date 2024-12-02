@@ -9,7 +9,10 @@ from .macros import (
     NUM_SPEAKER_CLASSES,
     NUM_TEXT_TOKENS,
     SPEAKER_EMBEDDING_DIM,
+    NUM_SPEAKER_PROFILE,
+
 )
+
 from .transformer import Transformer
 from .valle import VALLE, VALLF
 from .visualizer import visualize
@@ -94,21 +97,20 @@ def add_model_arguments(parser: argparse.ArgumentParser):
         help="Apply Reworked Conformer scaling on Transformers.",
     )
 
-
 def get_model(params: AttributeDict) -> nn.Module:
     if params.model_name.lower() in ["vall-f", "vallf"]:
         model = VALLF(
-            params.decoder_dim,
-            params.nhead,
-            params.num_decoder_layers,
-            norm_first=params.norm_first,
-            add_prenet=params.add_prenet,
-            prefix_mode=params.prefix_mode,
-            share_embedding=params.share_embedding,
-            nar_scale_factor=params.scale_factor,
-            prepend_bos=params.prepend_bos,
-            num_quantizers=params.num_quantizers,
-        )
+                params.decoder_dim,
+                params.nhead,
+                params.num_decoder_layers,
+                norm_first=params.norm_first,
+                add_prenet=params.add_prenet,
+                prefix_mode=params.prefix_mode,
+                share_embedding=params.share_embedding,
+                nar_scale_factor=params.scale_factor,
+                prepend_bos=params.prepend_bos,
+                num_quantizers=params.num_quantizers,
+                )
     elif params.model_name.lower() in ["vall-e", "valle"]:
         model = VALLE(
             params.decoder_dim,

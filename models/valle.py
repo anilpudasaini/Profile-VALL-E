@@ -31,8 +31,9 @@ from valle.modules.transformer import (
     TransformerEncoderLayer,
 )
 
-from .macros import NUM_AUDIO_TOKENS, NUM_TEXT_TOKENS
+from .macros import NUM_AUDIO_TOKENS, NUM_TEXT_TOKENS, NUM_SPEAKER_PROFILE
 from .visualizer import visualize
+from typing import Optional #for inference
 
 
 class Transpose(nn.Identity):
@@ -82,15 +83,16 @@ class VALLF(nn.Module):
         super().__init__()
         nar_d_model = int(d_model * nar_scale_factor)
 
-        self.ar_text_embedding = TokenEmbedding(d_model, NUM_TEXT_TOKENS)  # W_x
-        self.nar_text_embedding = TokenEmbedding(nar_d_model, NUM_TEXT_TOKENS)
-
+        self.ar_text_embedding = TokenEmbedding(d_model, NUM_TEXT_TOKENS, num_styles = NUM_SPEAKER_PROFILE)  # W_x 
+        self.nar_text_embedding = TokenEmbedding(nar_d_model, NUM_TEXT_TOKENS, num_styles = NUM_SPEAKER_PROFILE)  
         # ID NUM_AUDIO_TOKENS     -> PAD
         # ID NUM_AUDIO_TOKENS + 1 -> BOS
         self.ar_audio_prepend_bos = prepend_bos
         self.ar_audio_embedding = TokenEmbedding(
-            d_model, NUM_AUDIO_TOKENS + 1 + int(prepend_bos)
+            d_model, NUM_AUDIO_TOKENS + 1 + int(prepend_bos), num_styles = None
         )
+        
+
 
         # PreNet
         if add_prenet:
@@ -398,6 +400,7 @@ class VALLF(nn.Module):
         x_lens: torch.Tensor,
         y: Union[torch.Tensor, PromptedFeatures],
         y_lens: Union[torch.Tensor, PromptedFeatures],
+        style_id: torch.Tensor,  #Adding style ID #peaker prompt
         reduction: str = "sum",
         train_stage: int = 0,
         **kwargs,
@@ -416,6 +419,8 @@ class VALLF(nn.Module):
             before padding.
           train_stage:
             0: AR & NAR modules, 1: AR modules, 2: NAR modules
+          style_id:
+            An integer value between 1-27 that represents different speaker profile.
         Returns:
           Return the predicted audio code matrix, cross-entropy loss and Top-10 accuracy.
         """
@@ -437,7 +442,8 @@ class VALLF(nn.Module):
         x_mask = make_pad_mask(x_lens).to(x.device)
 
         text = x
-        x = self.ar_text_embedding(text)
+        
+        x = self.ar_text_embedding(text, style_id=style_id) #speaker profile
         x = self.ar_text_prenet(x)
         x = self.ar_text_position(x)
 
@@ -498,7 +504,7 @@ class VALLF(nn.Module):
                 k=1,
             )[0]
 
-            x = self.nar_text_embedding(text)
+            x = self.nar_text_embedding(text, style_id = style_id) #speaker profile
             x = self.nar_text_prenet(x)
             x = self.nar_text_position(x)
 
@@ -567,46 +573,59 @@ class VALLF(nn.Module):
         self,
         x: torch.Tensor,
         x_lens: torch.Tensor,
-        y: torch.Tensor,
+        y: Optional[torch.Tensor] = None,
         enroll_x_lens: Union[torch.Tensor, None] = None,
         top_k: int = -100,
         temperature: float = 1.0,
+        style_id: Optional[torch.Tensor] = None,  # Speaker profile
     ) -> torch.Tensor:
         """
         Args:
-          x:
+        x:
             A 2-D tensor of shape (1, S).
-          x_lens:
+        x_lens:
             A 1-D tensor of shape (1,). It contains the number of tokens in `x`
             before padding.
-          y:
-            A 3-D tensor of shape (1, T, 8).
-          top_k: (`optional`) int
+        y:
+            A 3-D tensor of shape (1, T, 8). Can be None if no audio_prompts are provided.
+        top_k: (`optional`) int
             The number of highest probability tokens to keep for top-k-filtering. Default to -100.
-          temperature: (`optional`) float
+        temperature: (`optional`) float
             The value used to module the next token probabilities. Must be strictly positive. Default to 1.0.
+        style_id:
+            A 1-D tensor of shape (1,) containing the style ID for conditioning.
         Returns:
-          Return the predicted audio code matrix and cross-entropy loss.
+        Return the predicted audio code matrix and cross-entropy loss.
         """
         assert x.ndim == 2, x.shape
         assert x_lens.ndim == 1, x_lens.shape
-        assert y.ndim == 3, y.shape
-        assert y.shape[0] == 1, y.shape
+
+        # Handle cases where `y` (audio_prompts) is not provided
+        if y is None:
+            prompts = torch.zeros((1, 0, 8), device=x.device, dtype=torch.int64)  # Empty tensor
+            prefix_len = 0
+        else:
+            assert y.ndim == 3, y.shape
+            assert y.shape[0] == 1, y.shape
+            prompts = y
+            prefix_len = y.shape[1]
 
         assert torch.all(x_lens > 0)
 
         text = x
-        x = self.ar_text_embedding(text)
+        
+        if style_is is not None:
+            x = self.ar_text_embedding(text, style_id=style_id)
+        else:
+            x = self.ar_text_embedding(text)
+        
         x = self.ar_text_prenet(x)
         x = self.ar_text_position(x)
+
         # NOTE: x has been padded in TextTokenCollater
         x_mask = make_pad_mask(x_lens).to(x.device)
 
-        prompts = y
-        prefix_len = y.shape[1]
-
         # AR Decoder
-        # TODO: Managing decoder steps avoid repetitive computation
         y = prompts[..., 0]
         if self.ar_audio_prepend_bos:
             y = F.pad(y, (1, 0), value=NUM_AUDIO_TOKENS + 1)
@@ -642,7 +661,7 @@ class VALLF(nn.Module):
             ):
                 if prompts.shape[1] == y.shape[1]:
                     raise SyntaxError(
-                        "well trained model shouldn't reach here."
+                        "well-trained model shouldn't reach here."
                     )
 
                 print(f"VALL-F EOS [{prefix_len} -> {y.shape[1]}]")
@@ -650,35 +669,22 @@ class VALLF(nn.Module):
 
             y = torch.concat([y, samples], dim=1)
 
-        codes = [y[:, prefix_len + int(self.ar_audio_prepend_bos) :]]
+        codes = [y[:, prefix_len + int(self.ar_audio_prepend_bos):]]
         if self.num_quantizers == 1:
             return torch.stack(codes, dim=-1)
 
         # Non-AR Decoders
         y_emb = self.nar_audio_embeddings[0](
-            y[:, int(self.ar_audio_prepend_bos) :]
+            y[:, int(self.ar_audio_prepend_bos):]
         )
-        if self.prefix_mode in [2, 4]:  # Exclude enrolled_phonemes
-            enrolled_len = enroll_x_lens.max().item()
-            # SOS + Synthesis Text + EOS
-            text = torch.concat(
-                [
-                    text[:, :1],
-                    text[:, enrolled_len - 1 :],
-                ],
-                dim=1,
-            )
-            assert text.shape[0] == 1
 
         x = self.nar_text_embedding(text)
+        if style_id is not None:
+            style_emb = self.style_embeddings(style_id)
+            x += style_emb.unsqueeze(1)
+
         x = self.nar_text_prenet(x)
         x = self.nar_text_position(x)
-
-        if self.prefix_mode != 0:
-            for j in range(1, self.num_quantizers):
-                y_emb[:, :prefix_len] += self.nar_audio_embeddings[j](
-                    prompts[..., j]
-                )
 
         for i, (predict_layer, embedding_layer) in enumerate(
             zip(
@@ -698,7 +704,6 @@ class VALLF(nn.Module):
             logits = predict_layer(y_dec[:, prefix_len:])
             samples = torch.argmax(logits, dim=-1)
             codes.append(samples)
-            # Formula (4) (5)
             if i < 6:
                 if self.prefix_mode == 0:
                     y_emb[:, :prefix_len] += embedding_layer(
@@ -707,7 +712,7 @@ class VALLF(nn.Module):
                 y_emb[:, prefix_len:] += embedding_layer(samples)
 
         assert len(codes) == self.num_quantizers
-        return torch.stack(codes, dim=-1)
+        return torch.stack(codes, dim=-1)[..., i + 1]
 
     def visualize(
         self,
@@ -715,9 +720,8 @@ class VALLF(nn.Module):
         batch: Dict[str, Union[List, torch.Tensor]],
         output_dir: str,
         limit: int = 4,
-    ) -> None:
+    ) -> None:  
         visualize(predicts, batch, output_dir, limit=limit)
-
 
 class VALLE(VALLF):
     """It implements https://arxiv.org/abs/2301.02111
@@ -765,6 +769,7 @@ class VALLE(VALLF):
         x_lens: torch.Tensor,
         y: Union[torch.Tensor, PromptedFeatures],
         y_lens: Union[torch.Tensor, PromptedFeatures],
+        style_id: Optional[torch.Tensor] = None,  # Added style ID
         reduction: str = "sum",
         train_stage: int = 0,
         **kwargs,
@@ -774,20 +779,26 @@ class VALLE(VALLF):
           x:
             A 2-D tensor of shape (N, S).
           x_lens:
-            A 1-D tensor of shape (N,). It contains the number of tokens in `x`
-            before padding.
+            A 1-D tensor of shape (N,). It contains the number of tokens in `x` before padding.
           y:
             A 3-D tensor of shape (N, T, 8).
           y_lens:
-            A 1-D tensor of shape (N,). It contains the number of tokens in `x`
-            before padding.
+            A 1-D tensor of shape (N,). It contains the number of tokens in `y` before padding.
+          style_id:
+            A 1-D tensor of shape (N,). Contains the style ID for speaker conditioning.
           train_stage:
-            0: AR & NAR modules, 1: AR modules, 2: NAR modules
+            0: AR & NAR modules, 1: AR modules, 2: NAR modules.
         Returns:
-          Return the predicted audio code matrix, cross-entropy loss and Top-10 accuracy.
+          Predicted audio code matrix, cross-entropy loss, and Top-10 accuracy.
         """
         assert x.ndim == 2, x.shape
         assert x_lens.ndim == 1, x_lens.shape
+
+        if style_id is not None:
+            x = self.ar_text_embedding(x, style_id=style_id) # Use style embedding
+        else:
+            x = self.ar_text_embedding(x)
+            
 
         y_prompts_codes = None
         if isinstance(y, PromptedFeatures):
@@ -826,6 +837,7 @@ class VALLE(VALLF):
             ar_xy_padding_mask = xy_padding_mask
         # AR Decoder
         if train_stage in [0, 1]:
+            
             x = self.ar_text_embedding(text)
             x = self.ar_text_prenet(x)
             x = self.ar_text_position(x)
@@ -894,7 +906,7 @@ class VALLE(VALLF):
                 k=1,
             )[0]
 
-            x = self.nar_text_embedding(text)
+            x = self.nar_text_embedding(text, style_id=style_id)
             x = self.nar_text_prenet(x)
             x = self.nar_text_position(x)
 
@@ -962,43 +974,58 @@ class VALLE(VALLF):
         self,
         x: torch.Tensor,
         x_lens: torch.Tensor,
-        y: torch.Tensor,
-        enroll_x_lens: torch.Tensor,
+        y: Optional[torch.Tensor] = None,  # TODO: Optional for text-only synthesis
+        style_id: Optional[torch.Tensor] = None,  # Added style ID
         top_k: int = -100,
         temperature: float = 1.0,
     ) -> torch.Tensor:
         """
         Args:
           x:
-            A 2-D tensor of shape (1, S).
+            A 2-D tensor of shape (1, S) for text tokens.
           x_lens:
-            A 1-D tensor of shape (1,). It contains the number of tokens in `x`
-            before padding.
+            A 1-D tensor of shape (1,). Contains the number of tokens in `x` before padding.
           y:
-            A 3-D tensor of shape (1, T, 8).
+            A 3-D tensor of shape (1, T, 8) for audio prompts (optional).
+          style_id:
+            A 1-D tensor of shape (1,). Contains the style ID for speaker conditioning.
           top_k: (`optional`) int
-            The number of highest probability tokens to keep for top-k-filtering. Default to -100.
+            The number of highest-probability tokens to keep for top-k sampling. Default is -100.
           temperature: (`optional`) float
-            The value used to module the next token probabilities. Must be strictly positive. Default to 1.0.
+            Adjusts the next-token probabilities. Default is 1.0.
         Returns:
-          Return the predicted audio code matrix.
+          Generated audio tokens as a tensor.
         """
         assert x.ndim == 2, x.shape
         assert x_lens.ndim == 1, x_lens.shape
-        assert y.ndim == 3, y.shape
-        assert y.shape[0] == 1, y.shape
+
+        # Handle cases where `y` (audio_prompts) is not provided
+        if y is None:
+            prompts = torch.zeros((1, 0, 8), device=x.device, dtype=torch.int64)  # Empty tensor
+            prefix_len = 0
+        else:
+            assert y.ndim == 3, y.shape  # providing empty tensors for audio prompts when style is added.
+            assert y.shape[0] == 1, y.shape
+            prompts = y
+            prefix_len = y.shape[1]
 
         assert torch.all(x_lens > 0)
 
+
+
         # NOTE: x has been padded in TextTokenCollater
         text = x
-        x = self.ar_text_embedding(text)
+        
+        if style_id is not None:
+            x = self.ar_text_embedding(text, style_id=style_id) # Use style embedding
+        else:
+            x = self.ar_text_embedding(text)
+        
         x = self.ar_text_prenet(x)
         x = self.ar_text_position(x)
 
         text_len = x_lens.max()
-        prompts = y
-        prefix_len = y.shape[1]
+
 
         # AR Decoder
         # TODO: Managing decoder steps avoid repetitive computation
@@ -1078,7 +1105,7 @@ class VALLE(VALLF):
             text_len = text_len - (enrolled_len - 2)
             assert text.shape[0] == 1
 
-        x = self.nar_text_embedding(text)
+        x = self.nar_text_embedding(text, style_id=style_id)
         x = self.nar_text_prenet(x)
         x = self.nar_text_position(x)
 
@@ -1136,6 +1163,7 @@ class VALLE(VALLF):
         assert len(codes) == self.num_quantizers
         return torch.stack(codes, dim=-1)
 
+    #TODO: speaker profile addition.
     def continual(
         self,
         x: torch.Tensor,
@@ -1156,7 +1184,8 @@ class VALLE(VALLF):
         """
         assert x.ndim == 2, x.shape
         assert x_lens.ndim == 1, x_lens.shape
-        assert y.ndim == 3, y.shape
+
+        assert y.ndim == 3, y.shape 
         assert y.shape[0] == 1, y.shape
 
         assert torch.all(x_lens > 0)
