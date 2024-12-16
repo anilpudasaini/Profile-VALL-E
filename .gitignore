@@ -25,3 +25,4 @@ infer/
 #ignore docker
 docker/
 docker/*.h5
+style_valle_models_notebooks.tar.gz
