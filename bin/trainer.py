@@ -523,8 +523,16 @@ def compute_loss(
     
     # Extract style IDs
     #speaker profile
-    style_ids = batch["style_ids"].to(device)
+    style_ids = batch["style_ids"].to(device).long() #convert to torch.int64 as embedding layers strictly uses torch.int64
 
+    
+    # print(f"[info:trainer.py] Style IDs dtype: {style_ids.dtype}, shape: {style_ids.shape}")
+
+    # print("[info:trainer.py] Before forward call:")
+    # print("[info:trainer.py] text_tokens shape:", text_tokens.shape)
+    # print("[info:trainer.py] text_tokens_lens:", text_tokens_lens)
+    # print("[info:trainer.py] audio_features shape:", audio_features.shape)
+    # print("[info:trainer.py] audio_features_lens:", audio_features_lens)
     #print(f"Style IDs: {style_ids}")  #Debugging
 
 

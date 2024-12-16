@@ -10,5 +10,8 @@ NUM_MEL_BINS = 100  # BigVGAN bigvgan_24khz_100band
 NUM_SPEAKER_CLASSES = 4096
 SPEAKER_EMBEDDING_DIM = 64
 
-# Speaker Profile
-NUM_SPEAKER_PROFILE = 27
+# Speaker Profile for CVD_FROM_REPO
+NUM_SPEAKER_PROFILE = 32 
+
+# Speaker Profile for custom
+#NUM_SPEAKER_PROFILE = 27

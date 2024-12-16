@@ -88,6 +88,6 @@ def prepare_custom_dataset(
 
 
 prepare_custom_dataset(
-    metadata_csv=Path("/home/anil/cv-corpus-17.0-2024-03-15/en/dataset/added_style_wav.csv"),
+    metadata_csv=Path("/home/anil/cv-corpus-17.0-2024-03-15/en/style_added_cvd_ravdess_timit.csv"),
     output_dir=Path("/home/anil/cv-corpus-17.0-2024-03-15/en/manifests")
 )

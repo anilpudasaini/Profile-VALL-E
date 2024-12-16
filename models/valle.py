@@ -614,7 +614,7 @@ class VALLF(nn.Module):
 
         text = x
         
-        if style_is is not None:
+        if style_id is not None:
             x = self.ar_text_embedding(text, style_id=style_id)
         else:
             x = self.ar_text_embedding(text)
@@ -791,14 +791,14 @@ class VALLE(VALLF):
         Returns:
           Predicted audio code matrix, cross-entropy loss, and Top-10 accuracy.
         """
+        # print("[info:valle.py] Inside model forward:")
+        # print("[info:valle.py] x.shape:", x.shape)
+        # print("[info:valle.py] x_lens:", x_lens)
+        # print("[info:valle.py] y.shape:", y.shape)
+        # print("[info:valle.py] y_lens:", y_lens)
+
         assert x.ndim == 2, x.shape
         assert x_lens.ndim == 1, x_lens.shape
-
-        if style_id is not None:
-            x = self.ar_text_embedding(x, style_id=style_id) # Use style embedding
-        else:
-            x = self.ar_text_embedding(x)
-            
 
         y_prompts_codes = None
         if isinstance(y, PromptedFeatures):
@@ -817,6 +817,15 @@ class VALLE(VALLF):
         y_mask_int = y_mask.type(torch.int64)
 
         text = x
+        # preserve x into text so that later in train stage, embedding can be done.
+        
+        # if style_id is not None:
+        #     x = self.ar_text_embedding(x, style_id=style_id) # Use style embedding
+        # else:
+        #     x = self.ar_text_embedding(x)
+
+
+        
         codes = y.type(torch.int64) * (1 - y_mask_int.unsqueeze(dim=-1))
 
         y, targets = self.pad_y_eos(
@@ -835,10 +844,17 @@ class VALLE(VALLF):
             )
         else:
             ar_xy_padding_mask = xy_padding_mask
+        
+        
+        # print("[info: valle.py] text_tokens min/max:", x.min().item(), x.max().item())
+        # if style_id is not None:
+        #     print("[info: valle.py] style_id min/max:", style_id.min().item(), style_id.max().item())
+        
+        
         # AR Decoder
         if train_stage in [0, 1]:
             
-            x = self.ar_text_embedding(text)
+            x = self.ar_text_embedding(text, style_id=style_id)    #style-id inclusion
             x = self.ar_text_prenet(x)
             x = self.ar_text_position(x)
 
@@ -861,6 +877,18 @@ class VALLE(VALLF):
 
             # merge key padding and attention masks
             bsz, src_len = x.shape[0], x_len + y_len
+            
+            
+            # print("Debug Info:")
+            # print("x_len:", x_len)
+            # print("y_len:", y_len)
+            # print("src_len:", src_len)
+            # print("ar_xy_padding_mask shape:", ar_xy_padding_mask.shape)
+            # print("bsz:", bsz)
+            # print("num_heads:", self.num_heads)
+            # print("ar_xy_padding_mask numel:", ar_xy_padding_mask.numel())
+            # print("Expected numel after view:", bsz * 1 * 1 * src_len)
+
             _xy_padding_mask = (
                 ar_xy_padding_mask.view(bsz, 1, 1, src_len)
                 .expand(-1, self.num_heads, -1, -1)
@@ -1105,7 +1133,7 @@ class VALLE(VALLF):
             text_len = text_len - (enrolled_len - 2)
             assert text.shape[0] == 1
 
-        x = self.nar_text_embedding(text, style_id=style_id)
+        x = self.nar_text_embedding(text, style_id=style_id) #style id inclusion
         x = self.nar_text_prenet(x)
         x = self.nar_text_position(x)
 

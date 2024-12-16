@@ -166,57 +166,12 @@ def main():
                 f"Processing partition: {partition} CUDA: {torch.cuda.is_available()}"
             )
             try:
-                # Create CutSet from recordings and supervisions
-                original_cut_set = CutSet.from_manifests(
+                cut_set = CutSet.from_manifests(
                     recordings=m["recordings"],
                     supervisions=m["supervisions"],
                 )
-            
-                # Aggregate supervisions by recording_id
-                final_supervisions = []
-                for cut in original_cut_set:
-                    grouped_prompts = {}
-                    for supervision in cut.supervisions:
-                        recording_id = supervision.recording_id
-                        if recording_id not in grouped_prompts:
-                            grouped_prompts[recording_id] = {
-                                "base_supervision": supervision,
-                                "profile_prompts": []
-                            }
-                        grouped_prompts[recording_id]["profile_prompts"].append(
-                            supervision.custom["profile_prompt"]
-                        )
-                
-                    # Create aggregated supervisions
-                    for recording_id, group in grouped_prompts.items():
-                        base_supervision = group["base_supervision"]
-                        aggregated_supervision = SupervisionSegment(
-                            id=base_supervision.id,
-                            recording_id=base_supervision.recording_id,
-                            start=base_supervision.start,
-                            duration=base_supervision.duration,
-                            channel=base_supervision.channel,
-                            text=base_supervision.text,
-                            language=base_supervision.language,
-                            speaker=base_supervision.speaker,
-                            custom={
-                                **base_supervision.custom,
-                                "profile_prompts": group["profile_prompts"],
-                            },
-                        )
-                        final_supervisions.append(aggregated_supervision)
-                
-                # Create a new CutSet with updated supervisions
-                supervision_set = SupervisionSet.from_segments(final_supervisions)
-                cut_set = CutSet.from_manifests(
-                    recordings=m["recordings"],
-                    supervisions=supervision_set,
-                ).trim_to_supervisions()
-            
-            except Exception as e:
-                logging.error(f"Error while creating CutSet: {e}")
+            except Exception:
                 cut_set = m["cuts"]
-
 
             # AudioTokenizer
             if args.audio_extractor:
@@ -229,7 +184,7 @@ def main():
                         f"{args.output_dir}/{args.prefix}_fbank_{partition}"
                     )
 
-                if args.prefix.lower() in ["ljspeech", "aishell", "baker", "cvd"]:
+                if args.prefix.lower() in ["ljspeech", "aishell", "cvd"]:
                     cut_set = cut_set.resample(24000)
                     # https://github.com/lifeiteng/vall-e/issues/90
                     # if args.prefix == "aishell":
@@ -261,6 +216,103 @@ def main():
                             executor=ex,
                             storage_type=NumpyHdf5Writer,
                         )
+ 
+            # try:
+            #     # Create CutSet from recordings and supervisions
+            #     original_cut_set = CutSet.from_manifests(
+            #         recordings=m["recordings"],
+            #         supervisions=m["supervisions"],
+            #     )
+            
+            #     # Aggregate supervisions by recording_id
+            #     final_supervisions = []
+            #     for cut in original_cut_set:
+            #         grouped_prompts = {}
+            #         for supervision in cut.supervisions:
+            #             recording_id = supervision.recording_id
+            #             if recording_id not in grouped_prompts:
+            #                 grouped_prompts[recording_id] = {
+            #                     "base_supervision": supervision,
+            #                     "profile_prompts": []
+            #                 }
+            #             grouped_prompts[recording_id]["profile_prompts"].append(
+            #                 supervision.custom["profile_prompt"]
+            #             )
+                
+            #         # Create aggregated supervisions
+            #         for recording_id, group in grouped_prompts.items():
+            #             base_supervision = group["base_supervision"]
+            #             aggregated_supervision = SupervisionSegment(
+            #                 id=base_supervision.id,
+            #                 recording_id=base_supervision.recording_id,
+            #                 start=base_supervision.start,
+            #                 duration=base_supervision.duration,
+            #                 channel=base_supervision.channel,
+            #                 text=base_supervision.text,
+            #                 language=base_supervision.language,
+            #                 speaker=base_supervision.speaker,
+            #                 custom={
+            #                     **base_supervision.custom,
+            #                     "profile_prompts": group["profile_prompts"],
+            #                 },
+            #             )
+            #             final_supervisions.append(aggregated_supervision)
+                
+            #     # Create a new CutSet with updated supervisions
+            #     supervision_set = SupervisionSet.from_segments(final_supervisions)
+            #     cut_set = CutSet.from_manifests(
+            #         recordings=m["recordings"],
+            #         supervisions=supervision_set,
+            #     ).trim_to_supervisions()
+            
+            # except Exception as e:
+            #     logging.error(f"Error while creating CutSet: {e}")
+            #     cut_set = m["cuts"]
+
+
+            # # AudioTokenizer
+            # if args.audio_extractor:
+            #     if args.audio_extractor == "Encodec":
+            #         storage_path = (
+            #             f"{args.output_dir}/{args.prefix}_encodec_{partition}"
+            #         )
+            #     else:
+            #         storage_path = (
+            #             f"{args.output_dir}/{args.prefix}_fbank_{partition}"
+            #         )
+
+            #     if args.prefix.lower() in ["ljspeech", "aishell", "baker", "cvd"]:
+            #         cut_set = cut_set.resample(24000)
+            #         # https://github.com/lifeiteng/vall-e/issues/90
+            #         # if args.prefix == "aishell":
+            #         #     # NOTE: the loudness of aishell audio files is around -33
+            #         #     # The best way is datamodule --on-the-fly-feats --enable-audio-aug
+            #         #     cut_set = cut_set.normalize_loudness(
+            #         #         target=-20.0, affix_id=True
+            #         #     )
+
+            #     with torch.no_grad():
+            #         if (
+            #             torch.cuda.is_available()
+            #             and args.audio_extractor == "Encodec"
+            #         ):
+            #             cut_set = cut_set.compute_and_store_features_batch(
+            #                 extractor=audio_extractor,
+            #                 storage_path=storage_path,
+            #                 num_workers=num_jobs,
+            #                 batch_duration=args.batch_duration,
+            #                 collate=False,
+            #                 overwrite=True,
+            #                 storage_type=NumpyHdf5Writer,
+            #             )
+            #         else:
+            #             cut_set = cut_set.compute_and_store_features(
+            #                 extractor=audio_extractor,
+            #                 storage_path=storage_path,
+            #                 num_jobs=num_jobs if ex is None else 64,
+            #                 executor=ex,
+            #                 storage_type=NumpyHdf5Writer,
+            #             )
 
                 # TextTokenizer
                 if args.text_extractor:

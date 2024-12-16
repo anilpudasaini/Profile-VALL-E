@@ -90,9 +90,16 @@ class SpeechSynthesisDataset(torch.utils.data.Dataset):
         text_tokens, text_tokens_lens = self.text_token_collater(
             [cut.supervisions[0].custom["tokens"]["text"] for cut in cuts]
         )
+
+        # print("[info:dataset.py] text_tokens dtype:", text_tokens.dtype) #debug
+        # print("[info:dataset.py] text_tokens shape:", text_tokens.shape)
+        # print("[info:dataset.py] text_tokens_lens:", text_tokens_lens)
+
+        
+
         #style-id speaker profile
         style_ids = torch.tensor(
-        [cut.supervisions[0].custom["style_id"] for cut in cuts], dtype=torch.int32
+        [cut.supervisions[0].custom["style_id"] for cut in cuts], dtype=torch.long
         )
 
         return {

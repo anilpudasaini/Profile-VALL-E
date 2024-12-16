@@ -90,7 +90,7 @@ class TtsDataModule:
         group.add_argument(
             "--manifest-dir",
             type=Path,
-            default=Path("data/tokenized"),
+            default=Path("data/tokenized/cvd_from_repo"),
             help="Path to directory with train/valid/test cuts.",
         )
         group.add_argument(
@@ -224,7 +224,7 @@ class TtsDataModule:
         parser.add_argument(
             "--text-tokens",
             type=str,
-            default="data/tokenized/cvd/unique_text_tokens.k2symbols",
+            default="data/tokenized/cvd_from_repo/unique_text_tokens.k2symbols", #unique_text_tokens
             help="Path to the unique text tokens file",
         )
 
