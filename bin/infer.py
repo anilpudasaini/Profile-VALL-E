@@ -157,7 +157,7 @@ def main():
 
         # Decode and save audio
         samples = audio_tokenizer.decode([(encoded_frames.transpose(2, 1), None)])
-        torchaudio.save(f"{args.output_dir}/{n}.wav", samples[0].cpu(), 24000)
+        torchaudio.save(f"{args.output_dir}/{n}_style_id_{args.style_id}.wav", samples[0].cpu(), 24000)
 
 
 torch.set_num_threads(1)
