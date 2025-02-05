@@ -22,7 +22,7 @@ from icefall.utils import make_pad_mask
 from torchmetrics.classification import MulticlassAccuracy
 
 from valle.data.input_strategies import PromptedFeatures
-from valle.modules.embedding import SinePositionalEmbedding, TokenEmbedding
+from valle.modules.embedding import SinePositionalEmbedding, TokenEmbedding, ProfileEncoder
 from valle.modules.transformer import (
     AdaptiveLayerNorm,
     LayerNorm,
@@ -83,16 +83,17 @@ class VALLF(nn.Module):
         super().__init__()
         nar_d_model = int(d_model * nar_scale_factor)
 
-        self.ar_text_embedding = TokenEmbedding(d_model, NUM_TEXT_TOKENS, num_styles = NUM_SPEAKER_PROFILE)  # W_x 
-        self.nar_text_embedding = TokenEmbedding(nar_d_model, NUM_TEXT_TOKENS, num_styles = NUM_SPEAKER_PROFILE)  
+        self.ar_text_embedding = TokenEmbedding(d_model, NUM_TEXT_TOKENS)  # W_x 
+        self.nar_text_embedding = TokenEmbedding(nar_d_model, NUM_TEXT_TOKENS)  
         # ID NUM_AUDIO_TOKENS     -> PAD
         # ID NUM_AUDIO_TOKENS + 1 -> BOS
         self.ar_audio_prepend_bos = prepend_bos
         self.ar_audio_embedding = TokenEmbedding(
-            d_model, NUM_AUDIO_TOKENS + 1 + int(prepend_bos), num_styles = None
+            d_model, NUM_AUDIO_TOKENS + 1 + int(prepend_bos)
         )
         
-
+        # bert-uncased
+        self.profile_encoder = ProfileEncoder(d_model)
 
         # PreNet
         if add_prenet:
@@ -400,7 +401,7 @@ class VALLF(nn.Module):
         x_lens: torch.Tensor,
         y: Union[torch.Tensor, PromptedFeatures],
         y_lens: Union[torch.Tensor, PromptedFeatures],
-        style_id: torch.Tensor,  #Adding style ID #peaker prompt
+        profile_prompt: List[str],
         reduction: str = "sum",
         train_stage: int = 0,
         **kwargs,
@@ -419,8 +420,8 @@ class VALLF(nn.Module):
             before padding.
           train_stage:
             0: AR & NAR modules, 1: AR modules, 2: NAR modules
-          style_id:
-            An integer value between 1-27 that represents different speaker profile.
+          profile_prompt:
+            A list of profile descriptions
         Returns:
           Return the predicted audio code matrix, cross-entropy loss and Top-10 accuracy.
         """
@@ -443,7 +444,7 @@ class VALLF(nn.Module):
 
         text = x
         
-        x = self.ar_text_embedding(text, style_id=style_id) #speaker profile
+        x = self.ar_text_embedding(text)
         x = self.ar_text_prenet(x)
         x = self.ar_text_position(x)
 
@@ -504,7 +505,7 @@ class VALLF(nn.Module):
                 k=1,
             )[0]
 
-            x = self.nar_text_embedding(text, style_id = style_id) #speaker profile
+            x = self.nar_text_embedding(text) 
             x = self.nar_text_prenet(x)
             x = self.nar_text_position(x)
 
@@ -577,7 +578,6 @@ class VALLF(nn.Module):
         enroll_x_lens: Union[torch.Tensor, None] = None,
         top_k: int = -100,
         temperature: float = 1.0,
-        style_id: Optional[torch.Tensor] = None,  # Speaker profile
     ) -> torch.Tensor:
         """
         Args:
@@ -592,8 +592,6 @@ class VALLF(nn.Module):
             The number of highest probability tokens to keep for top-k-filtering. Default to -100.
         temperature: (`optional`) float
             The value used to module the next token probabilities. Must be strictly positive. Default to 1.0.
-        style_id:
-            A 1-D tensor of shape (1,) containing the style ID for conditioning.
         Returns:
         Return the predicted audio code matrix and cross-entropy loss.
         """
@@ -614,11 +612,12 @@ class VALLF(nn.Module):
 
         text = x
         
-        if style_id is not None:
-            x = self.ar_text_embedding(text, style_id=style_id)
-        else:
-            x = self.ar_text_embedding(text)
+        # if style_id is not None:
+        #     x = self.ar_text_embedding(text, style_id=style_id)
+        # else:
+        #     x = self.ar_text_embedding(text)
         
+        x = self.ar_text_embedding(text)
         x = self.ar_text_prenet(x)
         x = self.ar_text_position(x)
 
@@ -679,9 +678,11 @@ class VALLF(nn.Module):
         )
 
         x = self.nar_text_embedding(text)
-        if style_id is not None:
-            style_emb = self.style_embeddings(style_id)
-            x += style_emb.unsqueeze(1)
+        
+        
+        # if style_id is not None:
+        #     style_emb = self.style_embeddings(style_id)
+        #     x += style_emb.unsqueeze(1)
 
         x = self.nar_text_prenet(x)
         x = self.nar_text_position(x)
@@ -762,6 +763,8 @@ class VALLE(VALLF):
             nar_scale_factor=nar_scale_factor,
             **kwargs,
         )
+        # using bert uncased
+        self.profile_encoder = ProfileEncoder(d_model)
 
     def forward(
         self,
@@ -769,7 +772,7 @@ class VALLE(VALLF):
         x_lens: torch.Tensor,
         y: Union[torch.Tensor, PromptedFeatures],
         y_lens: Union[torch.Tensor, PromptedFeatures],
-        style_id: Optional[torch.Tensor] = None,  # Added style ID
+        profile_prompt: List[str],
         reduction: str = "sum",
         train_stage: int = 0,
         **kwargs,
@@ -784,8 +787,8 @@ class VALLE(VALLF):
             A 3-D tensor of shape (N, T, 8).
           y_lens:
             A 1-D tensor of shape (N,). It contains the number of tokens in `y` before padding.
-          style_id:
-            A 1-D tensor of shape (N,). Contains the style ID for speaker conditioning.
+          profile_prompt:
+            A list containing the description of the profiles.
           train_stage:
             0: AR & NAR modules, 1: AR modules, 2: NAR modules.
         Returns:
@@ -854,7 +857,14 @@ class VALLE(VALLF):
         # AR Decoder
         if train_stage in [0, 1]:
             
-            x = self.ar_text_embedding(text, style_id=style_id)    #style-id inclusion
+            
+            x = self.ar_text_embedding(text)
+            
+            
+            #profile information addition
+            profile_emb = self.profile_encoder(profile_prompt) # [batch_size, d_model]
+            x = x + profile_emb.unsqueeze(1) # broadcast across timesteps [batch_size, sequence_length, d_model] 
+
             x = self.ar_text_prenet(x)
             x = self.ar_text_position(x)
 
@@ -934,13 +944,19 @@ class VALLE(VALLF):
                 k=1,
             )[0]
 
-            x = self.nar_text_embedding(text, style_id=style_id)
+            x = self.nar_text_embedding(text)
+            
+            
+            #profile information addition
+            profile_emb = self.profile_encoder(profile_prompt) # [batch_size, d_model]
+            x = x + profile_emb.unsqueeze(1) # broadcast across timesteps [batch_size, sequence_length, d_model]
+            
             x = self.nar_text_prenet(x)
             x = self.nar_text_position(x)
 
             y_emb, prefix_len = self._prepare_prompts(
                 y, y_lens, codes, nar_stage, y_prompts_codes
-            )
+            ) 
 
             y_len = y_lens.max()
             targets = codes[..., nar_stage] + NUM_AUDIO_TOKENS * y_mask_int
@@ -1002,8 +1018,8 @@ class VALLE(VALLF):
         self,
         x: torch.Tensor,
         x_lens: torch.Tensor,
-        y: Optional[torch.Tensor] = None,  # TODO: Optional for text-only synthesis
-        style_id: Optional[torch.Tensor] = None,  # Added style ID
+        profile_prompt: List[str],  
+        y: Optional[torch.Tensor] = None,
         top_k: int = -100,
         temperature: float = 1.0,
     ) -> torch.Tensor:
@@ -1015,8 +1031,8 @@ class VALLE(VALLF):
             A 1-D tensor of shape (1,). Contains the number of tokens in `x` before padding.
           y:
             A 3-D tensor of shape (1, T, 8) for audio prompts (optional).
-          style_id:
-            A 1-D tensor of shape (1,). Contains the style ID for speaker conditioning.
+          profile_prompt:
+            A list containing the description of the profiles or single description.
           top_k: (`optional`) int
             The number of highest-probability tokens to keep for top-k sampling. Default is -100.
           temperature: (`optional`) float
@@ -1044,10 +1060,16 @@ class VALLE(VALLF):
         # NOTE: x has been padded in TextTokenCollater
         text = x
         
-        if style_id is not None:
-            x = self.ar_text_embedding(text, style_id=style_id) # Use style embedding
-        else:
-            x = self.ar_text_embedding(text)
+        # if style_id is not None:
+        #     x = self.ar_text_embedding(text, style_id=style_id) # Use style embedding
+        # else:
+        #     x = self.ar_text_embedding(text)
+        
+        x = self.ar_text_embedding
+        
+        #profile information addition
+        profile_emb = self.profile_encoder(profile_prompt) # [batch_size, d_model]
+        x = x + profile_emb.unsqueeze(1) # broadcast across timesteps [batch_size, sequence_length, d_model] 
         
         x = self.ar_text_prenet(x)
         x = self.ar_text_position(x)
@@ -1133,7 +1155,12 @@ class VALLE(VALLF):
             text_len = text_len - (enrolled_len - 2)
             assert text.shape[0] == 1
 
-        x = self.nar_text_embedding(text, style_id=style_id) #style id inclusion
+        x = self.nar_text_embedding(text) 
+        
+        #profile information addition
+        profile_emb = self.profile_encoder(profile_prompt) # [batch_size, d_model]
+        x = x + profile_emb.unsqueeze(1) # broadcast across timesteps [batch_size, sequence_length, d_model] 
+        
         x = self.nar_text_prenet(x)
         x = self.nar_text_position(x)
 
