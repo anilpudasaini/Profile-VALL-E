@@ -1,7 +1,6 @@
 #  Speaker Profile VALL-E
 
-![Profile VALL-E](valle/valle/images/speaker_profile_valle.png)
-
+![Speaker Profile VALLE](images/valle.png)
 
 ## Overview
 
