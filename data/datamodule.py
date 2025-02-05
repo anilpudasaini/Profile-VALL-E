@@ -90,7 +90,7 @@ class TtsDataModule:
         group.add_argument(
             "--manifest-dir",
             type=Path,
-            default=Path("data/tokenized/cvd_from_repo"),
+            default=Path("data/tokenized/cvd_from_repo_20_profilePrompts"), #change this
             help="Path to directory with train/valid/test cuts.",
         )
         group.add_argument(
@@ -224,7 +224,7 @@ class TtsDataModule:
         parser.add_argument(
             "--text-tokens",
             type=str,
-            default="data/tokenized/cvd_from_repo/unique_text_tokens.k2symbols", #unique_text_tokens
+            default="data/tokenized/cvd_from_repo_20_profilePrompts/unique_text_tokens.k2symbols", #unique_text_tokens and change this
             help="Path to the unique text tokens file",
         )
 
@@ -426,15 +426,15 @@ class TtsDataModule:
     def train_cuts(self) -> CutSet:
         logging.info("About to get train cuts")
         return load_manifest_lazy(
-            self.args.manifest_dir / "cvd_cuts_train.jsonl.gz" #added for custom dataset
+            self.args.manifest_dir / "cvd_cuts_train.jsonl.gz" # change here
         )
 
     @lru_cache()
     def dev_cuts(self) -> CutSet:
         logging.info("About to get dev cuts")
-        return load_manifest_lazy(self.args.manifest_dir / "cvd_cuts_dev.jsonl.gz") #added for custom dataset
+        return load_manifest_lazy(self.args.manifest_dir / "cvd_cuts_dev.jsonl.gz") #change here
 
     @lru_cache()
     def test_cuts(self) -> CutSet:
         logging.info("About to get test cuts")
-        return load_manifest_lazy(self.args.manifest_dir / "cvd_cuts_test.jsonl.gz") #added for custom dataset
+        return load_manifest_lazy(self.args.manifest_dir / "cvd_cuts_test.jsonl.gz") #change here

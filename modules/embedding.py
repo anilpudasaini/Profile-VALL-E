@@ -16,6 +16,46 @@ import math
 
 import torch
 import torch.nn as nn
+from transformers import AutoTokenizer, AutoModel
+
+
+from typing import List, Union
+from transformers import AutoTokenizer, AutoModel
+
+class ProfileEncoder(nn.Module):
+    def __init__(self, d_model: int):
+        super().__init__()
+        self.tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+        self.text_encoder = AutoModel.from_pretrained("bert-base-uncased")
+        self.projection = nn.Linear(self.text_encoder.config.hidden_size, d_model)
+        
+        # Freeze BERT if needed
+        for param in self.text_encoder.parameters():
+            param.requires_grad = False  # Optional
+
+    def forward(self, prompts: Union[str, List[str]]) -> torch.Tensor:
+        """process batch of promtps"""
+        # In ProfileEncoder
+        if not prompts:  # Handle empty input
+            return torch.zeros((0, self.d_model), device=self.text_encoder.device)
+        # Convert single prompt to list
+        if isinstance(prompts, str):
+            prompts = [prompts]
+
+        # Tokenization
+        inputs = self.tokenizer(
+            prompts, 
+            padding=True, 
+            return_tensors="pt",
+            max_length=64,
+            truncation=True
+        ).to(self.text_encoder.device)
+
+        # Get embeddings [batch_size, seq_len, hidden_size]
+        outputs = self.text_encoder(**inputs)
+        
+        # CLS token projection [batch_size, d_model]
+        return self.projection(outputs.last_hidden_state[:, 0])
 
 
 class TokenEmbedding(nn.Module):
@@ -23,7 +63,7 @@ class TokenEmbedding(nn.Module):
         self,
         dim_model: int,
         vocab_size: int,
-        num_styles: int = None,  #speaker profile
+        # num_styles: int = None,  #speaker profile
         dropout: float = 0.0,
     ):
         super().__init__()
@@ -35,9 +75,9 @@ class TokenEmbedding(nn.Module):
         self.word_embeddings = nn.Embedding(self.vocab_size, self.dim_model)
 
         #speaker profile
-        self.style_embeddings = (
-            nn.Embedding(num_styles, self.dim_model) if num_styles else None
-        )
+        # self.style_embeddings = (
+        #     nn.Embedding(num_styles, self.dim_model) if num_styles else None
+        # )
 
 
     @property
@@ -55,14 +95,17 @@ class TokenEmbedding(nn.Module):
         """
         X = self.word_embeddings(x)
 
-        # Add style embedding if provided
-        if self.style_embeddings and style_id is not None:
-            style_emb = self.style_embeddings(style_id)  # Shape: [Batch, dim_model]
-            X = X + style_emb.unsqueeze(1)  # Broadcast style_emb across all time steps
+        # # Add style embedding if provided
+        # if self.style_embeddings and style_id is not None:
+        #     style_emb = self.style_embeddings(style_id)  # Shape: [Batch, dim_model]
+        #     X = X + style_emb.unsqueeze(1)  # Broadcast style_emb across all time steps
         
         X = self.dropout(X)
 
         return X
+    
+
+
 
 
 

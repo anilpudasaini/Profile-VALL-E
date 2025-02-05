@@ -523,7 +523,10 @@ def compute_loss(
     
     # Extract style IDs
     #speaker profile
-    style_ids = batch["style_ids"].to(device).long() #convert to torch.int64 as embedding layers strictly uses torch.int64
+    #style_ids = batch["style_ids"].to(device).long() #convert to torch.int64 as embedding layers strictly uses torch.int64
+    
+    # Extract profile prompts
+    profile_prompt = batch["profile_prompt"] #change here
 
     
     # print(f"[info:trainer.py] Style IDs dtype: {style_ids.dtype}, shape: {style_ids.shape}")
@@ -534,6 +537,7 @@ def compute_loss(
     # print("[info:trainer.py] audio_features shape:", audio_features.shape)
     # print("[info:trainer.py] audio_features_lens:", audio_features_lens)
     #print(f"Style IDs: {style_ids}")  #Debugging
+    #print(f"profile_prompts: {profile_prompt} \n")  #Debugging
 
 
     with torch.set_grad_enabled(is_training):
@@ -542,7 +546,7 @@ def compute_loss(
             x_lens=text_tokens_lens,
             y=audio_features,
             y_lens=audio_features_lens,
-            style_id=style_ids, #speaker profile
+            profile_prompt = profile_prompt, # profile description change here
             train_stage=params.train_stage,
         )
 

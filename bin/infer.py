@@ -80,10 +80,10 @@ def get_args():
     )
 
     parser.add_argument(
-        "--style-id",
-        type=int,
-        default=15,
-        help="Style ID for speaker conditioning.",
+        "--profile-description",
+        type=str,
+        default="An adult male with British accent",
+        help="Text description of speaker profile (e.g. 'A young male with British accent')",
     )
 
     return parser.parse_args()
@@ -120,13 +120,10 @@ def main():
 
     text_prompts = " ".join(args.text_prompts.split("|"))
 
-    # Style ID
-    style_id = None
-    if args.style_id is not None:
-        if 0 <= args.style_id <= 26: 
-            style_id = torch.tensor([args.style_id], device=device)
-        else:
-            raise ValueError("Invalid style_id: Must be an integer between 0 and 26 inclusive.")
+    # Process profile description
+    profile_description = args.profile_description.strip()
+    if not profile_description:
+        raise ValueError("Profile description cannot be empty")
 
     for n, text in enumerate(args.text.split("|")):
         logging.info(f"Synthesizing text: {text}")
@@ -150,14 +147,23 @@ def main():
             x=text_tokens.to(device),
             x_lens=text_tokens_lens.to(device),
             y=audio_prompts,
-            style_id=style_id,  # Pass style_id
+            profile_prompt=[profile_description],  # Pass profile description (Note: singular not plural)
             top_k=args.top_k,
             temperature=args.temperature,
         )
 
+        # Create filename-safe version of profile description
+        safe_description = "".join(
+            [c if c.isalnum() else "_" for c in profile_description]
+        )[:50]
+        
         # Decode and save audio
         samples = audio_tokenizer.decode([(encoded_frames.transpose(2, 1), None)])
-        torchaudio.save(f"{args.output_dir}/{n}_style_id_{args.style_id}.wav", samples[0].cpu(), 24000)
+        torchaudio.save(
+            f"{args.output_dir}/{n}_profile_{safe_description}.wav",
+            samples[0].cpu(),
+            24000
+        )
 
 
 torch.set_num_threads(1)

@@ -19,7 +19,7 @@ modified from lhoste.dataset.speech_synthesis.py
 """
 
 from typing import Callable, Dict, List, Sequence, Union
-
+import random
 import torch
 from lhotse import validate
 from lhotse.cut import CutSet
@@ -45,6 +45,8 @@ class SpeechSynthesisDataset(torch.utils.data.Dataset):
             'audio_features_lens': (B, ) int tensor
             'text_tokens': (B x NumTextTokens) long tensor
             'text_tokens_lens': (B, ) int tensor
+            'style_ids': (B, ) long tensor
+            'profile_prompt': str  # Randomly selected profile prompt out of 10 prompts
         }
     """
 
@@ -101,6 +103,11 @@ class SpeechSynthesisDataset(torch.utils.data.Dataset):
         style_ids = torch.tensor(
         [cut.supervisions[0].custom["style_id"] for cut in cuts], dtype=torch.long
         )
+        
+        # Randomly select one profile prompt from the list
+        profile_prompt = [
+            random.choice(cut.supervisions[0].custom["profile_prompts"]) for cut in cuts
+        ]
 
         return {
             "utt_id": [cut.id for cut in cuts],
@@ -112,6 +119,7 @@ class SpeechSynthesisDataset(torch.utils.data.Dataset):
             "text_tokens": text_tokens,
             "text_tokens_lens": text_tokens_lens,
             "style_ids": style_ids, # speaker profile
+            "profile_prompt": profile_prompt # single random profile prompt/ description
         }
 
 

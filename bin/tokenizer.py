@@ -138,7 +138,7 @@ def main():
         types=["recordings", "supervisions", "cuts"],
     )
     
-    #print(f"Looking for manifests in {args.src_dir} with prefix '{args.prefix}' and suffix '{args.suffix}' ")
+    print(f"Looking for manifests in {args.src_dir} with prefix '{args.prefix}' and suffix '{args.suffix}' ")
 
     text_tokenizer = None
     if args.text_extractor:
