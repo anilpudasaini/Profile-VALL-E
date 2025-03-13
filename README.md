@@ -69,7 +69,7 @@ Here are some samples generated using the VALL-E model:
 
 ### Sample 4
 <audio controls>
-  <source src="/sample_audios/3_style_id_14.wav" type="audio/wav">
+  <source src="sample_audios/3_style_id_14.wav" type="audio/wav">
   Style_id = 14, "I love my partner and I hope she loves me."
 </audio>
 
