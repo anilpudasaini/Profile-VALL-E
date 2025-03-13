@@ -91,9 +91,14 @@ def get_args():
 
 def load_model(checkpoint, device):
     checkpoint = torch.load(checkpoint, map_location=device)
+
+    
     args = AttributeDict(checkpoint)
     model = get_model(args)
  
+    # check to see if profile encoder keys are present 
+    assert hasattr(model, 'profile_encoder'), "Model missing profile encoder!"
+    
     missing_keys, unexpected_keys = model.load_state_dict(
         checkpoint["model"], strict=True
     )
@@ -123,7 +128,7 @@ def main():
     # Process profile description
     profile_description = args.profile_description.strip()
     if not profile_description:
-        raise ValueError("Profile description cannot be empty")
+        raise ValueError("Profile description cannot be empty!!!")
 
     for n, text in enumerate(args.text.split("|")):
         logging.info(f"Synthesizing text: {text}")
@@ -143,14 +148,15 @@ def main():
             audio_prompts = torch.concat(audio_prompts, dim=-1).transpose(2, 1).to(device)
 
         # Perform inference
-        encoded_frames = model.inference(
-            x=text_tokens.to(device),
-            x_lens=text_tokens_lens.to(device),
-            y=audio_prompts,
-            profile_prompt=[profile_description],  # Pass profile description (Note: singular not plural)
-            top_k=args.top_k,
-            temperature=args.temperature,
-        )
+        with torch.inference_mode():
+            encoded_frames = model.inference(
+                x=text_tokens.to(device),
+                x_lens=text_tokens_lens.to(device),
+                y=audio_prompts,
+                profile_prompt=[profile_description],  # Pass profile description (Note: singular not plural)
+                top_k=args.top_k,
+                temperature=args.temperature,
+            )
 
         # Create filename-safe version of profile description
         safe_description = "".join(

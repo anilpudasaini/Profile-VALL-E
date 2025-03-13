@@ -739,6 +739,8 @@ class VALLE(VALLF):
         prefix_mode: int = 0,
         share_embedding: bool = True,
         nar_scale_factor: float = 1.0,
+        ar_style_weight: float = 0.7,
+        nar_style_weight: float = 0.3,  
         **kwargs,
     ):
         """
@@ -763,8 +765,42 @@ class VALLE(VALLF):
             nar_scale_factor=nar_scale_factor,
             **kwargs,
         )
-        # using bert uncased
+        self.ar_style_weight = ar_style_weight
+        self.nar_style_weight = nar_style_weight
+        
+        # Changes start here
+        
+        # Learnable scalar that balances text/profile magnitudes
+        self.profile_scale = nn.Parameter(torch.ones(1))  
+        
+        #Gating Mechanism to learn which text positions should prioritize profile information
+        self.profile_gate = nn.Sequential(
+            nn.Linear(2 * d_model, d_model),
+            nn.Sigmoid()
+        )
+        
+        #Add Cross Attention for stronger conditioning
+        self.profile_attn = nn.MultiheadAttention(
+            embed_dim=d_model,
+            num_heads=nhead,  # Start with 1 head first
+            dropout=0.1,
+            batch_first=True
+        )
+        
+        self.profile_ln = nn.LayerNorm(d_model)
+        
+        #Use Bert uncased
         self.profile_encoder = ProfileEncoder(d_model)
+        
+        
+        # 1. penalize style loss
+        self.style_classifier = nn.Sequential(
+        nn.Linear(d_model, 256),
+        nn.ReLU(),
+        nn.Dropout(0.1), 
+        nn.Linear(256, NUM_SPEAKER_PROFILE)
+        )
+        
 
     def forward(
         self,
@@ -772,6 +808,7 @@ class VALLE(VALLF):
         x_lens: torch.Tensor,
         y: Union[torch.Tensor, PromptedFeatures],
         y_lens: Union[torch.Tensor, PromptedFeatures],
+        style_id: torch.Tensor, 
         profile_prompt: List[str],
         reduction: str = "sum",
         train_stage: int = 0,
@@ -787,6 +824,8 @@ class VALLE(VALLF):
             A 3-D tensor of shape (N, T, 8).
           y_lens:
             A 1-D tensor of shape (N,). It contains the number of tokens in `y` before padding.
+          style_id:
+            An integer value  [0, 26) that represents different speaker profile.
           profile_prompt:
             A list containing the description of the profiles.
           train_stage:
@@ -799,6 +838,7 @@ class VALLE(VALLF):
         # print("[info:valle.py] x_lens:", x_lens)
         # print("[info:valle.py] y.shape:", y.shape)
         # print("[info:valle.py] y_lens:", y_lens)
+        included_styles = {style for style in range(26)}  # Valid style IDs in the training set
 
         assert x.ndim == 2, x.shape
         assert x_lens.ndim == 1, x_lens.shape
@@ -861,9 +901,27 @@ class VALLE(VALLF):
             x = self.ar_text_embedding(text)
             
             
-            #profile information addition
-            profile_emb = self.profile_encoder(profile_prompt) # [batch_size, d_model]
-            x = x + profile_emb.unsqueeze(1) # broadcast across timesteps [batch_size, sequence_length, d_model] 
+            # Get profile embedding [batch_size, d_model]
+            profile_emb = self.profile_encoder(profile_prompt)
+            
+            # 1. Adaptive Scaling
+            scaled_profile = profile_emb * self.profile_scale  # Learnable scalar
+            
+            # 2. Prepare for attention (expand to sequence)
+            # [batch_size, 1, d_model] -> [batch_size, text_seq_len, d_model]
+            profile_seq = scaled_profile.unsqueeze(1).expand(-1, x.size(1), -1)
+            
+            # 3. Gated Cross-Attention
+            gate = self.profile_gate(torch.cat([x, profile_seq], dim=-1))
+            attn_output, _ = self.profile_attn(
+                query=x * gate,
+                key=profile_seq,
+                value=profile_seq,
+                need_weights=False
+            )
+            
+            # 4. Residual Connection
+            x = self.profile_ln(x + F.dropout(attn_output, p=0.1))
 
             x = self.ar_text_prenet(x)
             x = self.ar_text_position(x)
@@ -922,9 +980,46 @@ class VALLE(VALLF):
                 # src_key_padding_mask=xy_padding_mask,
                 # is_causal=True,
             )
+            # 2. Penalize style loss
+            # Extract style features from AR outputs (pooled over time)
+            # ar_style_features = xy_dec.mean(dim=1)  # Shape: (batch_size, d_model)
+            
+            # Extract style features from AR outputs (take the last token)
+            ar_style_features = xy_dec[:, -1, :]  # Last token (shape: [batch_size, d_model])   
+            ar_style_logits = self.style_classifier(ar_style_features)
+
+            
+            # AR style loss
+            ar_style_loss = F.cross_entropy(
+                ar_style_logits, style_id,
+                reduction = reduction
+                ) * self.ar_style_weight  
+            
+            metrics["ArStyleLoss"] = ar_style_loss  # Add AR style loss to metrics
+            
+            # Calculate AR Style Accuracy
+            predicted_style_ids = torch.argmax(ar_style_logits, dim=-1)  # Shape: (batch_size,)
+
+            # Filter valid style IDs
+            valid_mask = torch.tensor(
+                [sid.item() in included_styles for sid in style_id], device=style_id.device, dtype=torch.bool
+            )  # Mask for valid style IDs
+            
+            valid_style_ids = style_id[valid_mask]  # Filter valid ground truth style IDs
+            valid_predicted_style_ids = predicted_style_ids[valid_mask]  # Filter valid predictions
+
+            # Calculate accuracy only for valid style IDs
+            if valid_style_ids.numel() > 0:  # Check if there are any valid style IDs
+                ar_style_acc = (valid_predicted_style_ids == valid_style_ids).float().mean()
+            else:
+                # Use a tensor with value 0.0 instead of a Python float
+                ar_style_acc = torch.tensor(0.0, device=style_id.device)
+
+            metrics["ArStyleAcc"] = ar_style_acc  # Add AR style accuracy to metrics
+            
             logits = self.ar_predict_layer(xy_dec[:, x_len:]).permute(0, 2, 1)
             # loss
-            total_loss = F.cross_entropy(logits, targets, reduction=reduction)
+            total_loss = F.cross_entropy(logits, targets, reduction=reduction) + ar_style_loss
 
             metrics["ArTop10Accuracy"] = self.ar_accuracy_metric(
                 logits.detach(), targets
@@ -947,9 +1042,29 @@ class VALLE(VALLF):
             x = self.nar_text_embedding(text)
             
             
-            #profile information addition
-            profile_emb = self.profile_encoder(profile_prompt) # [batch_size, d_model]
-            x = x + profile_emb.unsqueeze(1) # broadcast across timesteps [batch_size, sequence_length, d_model]
+            # Get profile embedding [batch_size, d_model]
+            profile_emb = self.profile_encoder(profile_prompt)
+            
+            # 1. Adaptive Scaling
+            scaled_profile = profile_emb * self.profile_scale  # Learnable scalar
+            
+            # 2. Prepare for attention (expand to sequence)
+            # [batch_size, 1, d_model] -> [batch_size, text_seq_len, d_model]
+            profile_seq = scaled_profile.unsqueeze(1).expand(-1, x.size(1), -1)
+            
+            # 3. Gated Cross-Attention
+            gate = self.profile_gate(torch.cat([x, profile_seq], dim=-1))
+            attn_output, _ = self.profile_attn(
+                query=x * gate,
+                key=profile_seq,
+                value=profile_seq,
+                need_weights=False
+            )
+            
+            # 4. Residual Connection
+            x = self.profile_ln(x + F.dropout(attn_output, p=0.1))
+        
+            
             
             x = self.nar_text_prenet(x)
             x = self.nar_text_position(x)
@@ -979,15 +1094,50 @@ class VALLE(VALLF):
                 src_key_padding_mask=xy_padding_mask,
                 # is_causal=False,
             )
+            #3. penalize style loss
+            # Extract style features from NAR outputs
+            nar_style_features = xy_dec.mean(dim=1)  # (batch_size, d_model)
+            nar_style_logits = self.style_classifier(nar_style_features)
+            
+            # NAR style loss
+            nar_style_loss = F.cross_entropy(
+                nar_style_logits, style_id,
+                reduction = reduction
+                ) * self.nar_style_weight  # Lower weight
+            
+            
+
+            # Calculate NAR Style Accuracy
+            predicted_style_ids = torch.argmax(nar_style_logits, dim=-1)  # Shape: (batch_size,)
+
+            # Filter valid style IDs (same as for AR)
+            valid_mask = torch.tensor(
+                [sid.item() in included_styles for sid in style_id], device=style_id.device, dtype=torch.bool
+            )
+            valid_style_ids = style_id[valid_mask]
+            valid_predicted_style_ids = predicted_style_ids[valid_mask]
+
+            # Calculate accuracy only for valid style IDs
+            if valid_style_ids.numel() > 0:
+                nar_style_acc = (valid_predicted_style_ids == valid_style_ids).float().mean()
+            else:
+                nar_style_acc = torch.tensor(0.0, device=style_id.device)
+
+            
+
             xy_dec = xy_dec[:, x_lens.max() + prefix_len :]
             if self.prefix_mode == 4:
                 prefix_len = 0  # reset for Top10Accuracy metric
             logits = self.nar_predict_layers[nar_stage - 1](xy_dec).permute(
                 0, 2, 1
             )
+            
 
             # loss
             total_length = (y_lens).sum().type(torch.float32)
+            metrics["NarStyleLoss"] = nar_style_loss * total_length # Add NAR style loss to metrics
+            metrics["NarStyleAcc"] = nar_style_acc * total_length  # Add NAR style accuracy to metrics
+            
             total_loss += (
                 F.cross_entropy(
                     logits,
@@ -997,6 +1147,10 @@ class VALLE(VALLF):
                 )
                 * (total_length / (total_length - prefix_len * x.shape[0]))
             )
+            #adding NAR style loss 
+            total_loss += nar_style_loss
+            
+    
             metrics["NarTop10Accuracy"] = (
                 self.nar_accuracy_metric(
                     F.pad(
@@ -1065,11 +1219,29 @@ class VALLE(VALLF):
         # else:
         #     x = self.ar_text_embedding(text)
         
-        x = self.ar_text_embedding
+        x = self.ar_text_embedding(text)
         
-        #profile information addition
-        profile_emb = self.profile_encoder(profile_prompt) # [batch_size, d_model]
-        x = x + profile_emb.unsqueeze(1) # broadcast across timesteps [batch_size, sequence_length, d_model] 
+        # Profile conditioning (NEW IMPLEMENTATION)
+        profile_emb = self.profile_encoder(profile_prompt)
+        
+        # 1. Apply learned scaling
+        scaled_profile = profile_emb * self.profile_scale
+        
+        # 2. Expand to sequence length
+        profile_seq = scaled_profile.unsqueeze(1).expand(-1, x.size(1), -1)
+        
+        # 3. Gated cross-attention
+        
+        gate = self.profile_gate(torch.cat([x, profile_seq], dim=-1))
+        attn_output, _ = self.profile_attn(
+            query=x * gate,
+            key=profile_seq,
+            value=profile_seq,
+            need_weights=False
+        )
+        
+        # 4. Add residual connection + layer norm
+        x = self.profile_ln(x + attn_output)
         
         x = self.ar_text_prenet(x)
         x = self.ar_text_position(x)
@@ -1154,12 +1326,34 @@ class VALLE(VALLF):
             )
             text_len = text_len - (enrolled_len - 2)
             assert text.shape[0] == 1
-
-        x = self.nar_text_embedding(text) 
         
         #profile information addition
-        profile_emb = self.profile_encoder(profile_prompt) # [batch_size, d_model]
-        x = x + profile_emb.unsqueeze(1) # broadcast across timesteps [batch_size, sequence_length, d_model] 
+        x = self.nar_text_embedding(text)
+        
+        
+        # Get profile embedding [batch_size, d_model]
+        profile_emb = self.profile_encoder(profile_prompt)
+        
+        # 1. Adaptive Scaling
+        scaled_profile = profile_emb * self.profile_scale  # Learnable scalar
+        
+        # 2. Prepare for attention (expand to sequence)
+        # [batch_size, 1, d_model] -> [batch_size, text_seq_len, d_model]
+        profile_seq = scaled_profile.unsqueeze(1).expand(-1, x.size(1), -1)
+        
+        # 3. Gated Cross-Attention
+        gate = self.profile_gate(torch.cat([x, profile_seq], dim=-1))
+        attn_output, _ = self.profile_attn(
+            query=x * gate,
+            key=profile_seq,
+            value=profile_seq,
+            need_weights=False
+        )
+        
+        # 4. Residual Connection
+        x = self.profile_ln(x + F.dropout(attn_output, p=0.1))
+        
+        
         
         x = self.nar_text_prenet(x)
         x = self.nar_text_position(x)

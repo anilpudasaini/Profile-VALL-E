@@ -27,37 +27,45 @@ class ProfileEncoder(nn.Module):
         super().__init__()
         self.tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
         self.text_encoder = AutoModel.from_pretrained("bert-base-uncased")
-        self.projection = nn.Linear(self.text_encoder.config.hidden_size, d_model)
+        self.pooler = nn.Sequential(
+            nn.Linear(2 * self.text_encoder.config.hidden_size, d_model), # mean and max are combined hence doubled.
+            nn.ReLU(),
+            nn.LayerNorm(d_model),
+            nn.Dropout(0.1)
+        )
         
-        # Freeze BERT if needed
+        # Partial fine-tuning (last 4 layers)
         for param in self.text_encoder.parameters():
-            param.requires_grad = False  # Optional
+            param.requires_grad = False  # Freeze all
+        for layer in self.text_encoder.encoder.layer[-4:]:
+            for param in layer.parameters():
+                param.requires_grad = True  # Unfreeze last 4 [Emperical studies suggest 2-4 for optimal Transfer Learning tasks.]
+                
+        # Always keep LayerNorms trainable [Suggestions]
+        for name, param in self.text_encoder.named_parameters():
+            if "LayerNorm" in name:
+                param.requires_grad = True
 
-    def forward(self, prompts: Union[str, List[str]]) -> torch.Tensor:
-        """process batch of promtps"""
-        # In ProfileEncoder
-        if not prompts:  # Handle empty input
-            return torch.zeros((0, self.d_model), device=self.text_encoder.device)
-        # Convert single prompt to list
-        if isinstance(prompts, str):
-            prompts = [prompts]
-
-        # Tokenization
+    def forward(self, prompts: List[str]) -> torch.Tensor:
         inputs = self.tokenizer(
             prompts, 
             padding=True, 
-            return_tensors="pt",
             max_length=64,
-            truncation=True
+            truncation=True,
+            return_tensors="pt"
         ).to(self.text_encoder.device)
 
-        # Get embeddings [batch_size, seq_len, hidden_size]
         outputs = self.text_encoder(**inputs)
         
-        # CLS token projection [batch_size, d_model]
-        return self.projection(outputs.last_hidden_state[:, 0])
-
-
+        # Better pooling: Mean + Max pooling
+        hidden_states = outputs.last_hidden_state
+        mean_pool = hidden_states.mean(dim=1)
+        max_pool = hidden_states.max(dim=1).values
+        combined = torch.cat([mean_pool, max_pool], dim=1)
+        
+        return self.pooler(combined)
+    
+    
 class TokenEmbedding(nn.Module):
     def __init__(
         self,
