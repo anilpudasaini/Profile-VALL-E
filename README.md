@@ -22,11 +22,10 @@
 ## Goals
 
 This project will be extended to include:
-- Implementation of VALL-E
-- Include speaker profile attributes for personalized TTS
-- Add profile prompting for style control
 
----
+- [x] Implementation of VALL-E
+- [x] Include speaker profile attributes for personalized TTS
+- [ ] Add profile prompting for style control
 
 ## Style IDs and Training Data
 
@@ -70,13 +69,13 @@ Here are some samples generated using the VALL-E model:
 
 ### Sample 4
 <audio controls>
-  <source src="/home/anil/valle/valle/sample_audios/3_style_id_14.wav" type="audio/wav">
+  <source src="/sample_audios/3_style_id_14.wav" type="audio/wav">
   Style_id = 14, "I love my partner and I hope she loves me."
 </audio>
 
 ### Sample 5
 <audio controls>
-  <source src="/home/anil/valle/valle/sample_audios/5_style_id_1.wav" type="audio/wav">
+  <source src="sample_audios/5_style_id_1.wav" type="audio/wav">
   Style_id = 1, "Earth orbits around the sun and rotates on its axis."
 </audio>
 
