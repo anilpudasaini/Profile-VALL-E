@@ -52,31 +52,31 @@ Here are some samples generated using the VALL-E model:
 
 ### Sample 1
 <audio controls>
-  <source src="sample_audios/0_style_id_9.wav" type="audio/mpeg">
+  <source src="sample_audios/0_style_id_9.wav" type="audio/wav">
   Style_id = 9, "Today is a beautiful day and i hope you are feeling great"
 </audio>
 
 ### Sample 2
 <audio controls>
-  <source src="sample_audios/0_style_id_4.wav" type="audio/mpeg">
+  <source src="sample_audios/0_style_id_4.wav" type="audio/wav">
   Style_id = 4, "Paris is known for its eiffle tower."
 </audio>
 
 ### Sample 3
 <audio controls>
-  <source src="sample_audios/2_style_id_20.wav" type="audio/mpeg">
+  <source src="sample_audios/2_style_id_20.wav" type="audio/wav">
   Style_id = 20, "Ice-cream is sweet and cold."
 </audio>
 
 ### Sample 4
 <audio controls>
-  <source src="/home/anil/valle/valle/sample_audios/3_style_id_14.wav" type="audio/mpeg">
+  <source src="/home/anil/valle/valle/sample_audios/3_style_id_14.wav" type="audio/wav">
   Style_id = 14, "I love my partner and I hope she loves me."
 </audio>
 
 ### Sample 5
 <audio controls>
-  <source src="/home/anil/valle/valle/sample_audios/5_style_id_1.wav" type="audio/mpeg">
+  <source src="/home/anil/valle/valle/sample_audios/5_style_id_1.wav" type="audio/wav">
   Style_id = 1, "Earth orbits around the sun and rotates on its axis."
 </audio>
 
